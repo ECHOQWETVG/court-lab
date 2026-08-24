@@ -99,12 +99,46 @@ BADGE_ATTR = {
     "WorkHorse": ["Stamina"] if False else ["Strength", "Stamina"],
 }
 
+CV_BADGES = {
+    "FloatGame", "Posterizer", "RiseUp", "AerialWizard", "HookSpecialist",
+    "PostFadePhenom", "Deadeye", "LimitlessRange", "SlipperyOffball", "BailOut",
+    "BreakStarter", "Dimer", "HandlesForDays", "Unpluckable", "PostLockdown",
+    "Challenger", "OffBallPest", "PickDodger", "Glove", "Interceptor",
+    "Pogostick", "BrickWall", "ImmovableEnforcer", "LayupMixmaster",
+    "PaintProdigy", "PhysicalFinisher", "PostPowerhouse", "MiniMarksman",
+    "VersatileVisionary", "AnkleAssassin", "LightningLaunch", "StrongHandle",
+    "HighFlyingDenier", "PaintPatroller", "GhostStepper", "PostSpinCatalyst",
+    "SetAndFire", "ArcCadence", "StaticMiddy", "SmoothOperator", "QuickTrigger",
+    "Pace", "WallUp", "Seatbelt", "AnkleBraces", "Crasher", "PossessionCloser",
+    "SyncSnatcher", "BoxoutBoss", "Breaker", "Flash", "WorkHorse", "Bruiser",
+}
+
 SKIP_BADGES = {
     "AlphaDog", "Enforcer", "BigEgo", "SmallEgo", "Expressive", "LaidBack",
     "Unpredictable", "WorkEthic", "HighFriendliness", "LowFriendliness",
     "Marketability", "NegativelyMotivated", "PositivelyMotivated",
-    "BigMarketPlayer", "FairWeatherPlayer", "TaxAvoiderPlayer", "Bruiser",
-    "Seatbelt", "SyncSnatcher", "PossessionCloser",
+    "BigMarketPlayer", "FairWeatherPlayer", "TaxAvoiderPlayer",
+}
+
+TAKEOVER_CV_KEY = {
+    "Inside_Touch": "INSIDE_TOUCH",
+    "Detonator": "DETONATOR",
+    "Airspace": "AIRSPACE",
+    "Shot_Artist": "SHOT_ARTIST",
+    "Calibrated": "CALIBRATED",
+    "Zip_Code": "ZIP_CODE",
+    "Cook": "COOK",
+    "Hawk": "HAWK",
+    "Second_Chance": "SECOND_CHANCE",
+    "Dishmaster": "DISHMASTER",
+    "Glue": "GLUE",
+    "Blur": "BLUR",
+    "Paint_Surgeon": "PAINT_SURGEON",
+    "Demolition": "DEMOLITION",
+    "Muscle": "MUSCLE",
+    "Navigator": "NAVIGATOR",
+    "Rim_Guardian": "RIM_GUARDIAN",
+    "See_The_Future": "SEE_THE_FUTURE",
 }
 
 TAKEOVER_IDS = [
@@ -284,6 +318,12 @@ def main():
     for a in ATTR_IDS:
         initial.setdefault(a, 25)
 
+    req_path = OUT.parent / "badge-reqs.json"
+    req_pack = json.loads(req_path.read_text())
+    badge_reqs = req_pack["badges"]
+    badge_heights = req_pack["heights"]
+    take_reqs = req_pack["takeovers"]
+
     badges = []
     badge_fields = defaultdict(dict)
     for key, row in pb.items():
@@ -295,18 +335,23 @@ def main():
                 bid = rest[: -(len(suf) + 1)]
                 badge_fields[bid][suf] = row
                 break
-    for bid, fields in badge_fields.items():
+    for bid in sorted(CV_BADGES):
         if bid in SKIP_BADGES:
             continue
+        fields = badge_fields.get(bid, {})
         name = fields.get("Name") or {}
         short = fields.get("ShortDescription") or {}
         desc = fields.get("Description") or {}
         abbr = fields.get("Abbreviation") or {}
-        if not (name.get("en") or name.get("zh")):
-            continue
-        attrs = [a for a in BADGE_ATTR.get(bid, []) if a in ATTR_IDS]
+        reqs = badge_reqs.get(bid) or {}
+        attrs = []
+        for lv in reqs.values():
+            for item in lv:
+                if item["a"] in ATTR_IDS and item["a"] not in attrs:
+                    attrs.append(item["a"])
         if not attrs:
-            continue
+            attrs = [a for a in BADGE_ATTR.get(bid, []) if a in ATTR_IDS]
+        ht = badge_heights.get(bid) or {"minHeight": 69, "maxHeight": 88}
         badges.append({
             "id": bid,
             "en": name.get("en") or bid,
@@ -317,6 +362,9 @@ def main():
             "desc_en": desc.get("en") or "",
             "desc_zh": desc.get("zh") or desc.get("en") or "",
             "attrs": attrs,
+            "reqs": reqs,
+            "minHeight": ht["minHeight"],
+            "maxHeight": ht["maxHeight"],
         })
     badges.sort(key=lambda b: b["zh"])
 
@@ -344,12 +392,16 @@ def main():
         dk = f"Takeovers_Screen_Ability_{tid}_Description"
         n = key_loc.get(nk, {"en": tid.replace("_", " "), "zh": tid})
         d = key_loc.get(dk, {"en": "", "zh": ""})
+        cv_key = TAKEOVER_CV_KEY.get(tid)
+        raw_reqs = take_reqs.get(cv_key) if cv_key else None
+        reqs = [{"a": x["attribute"], "v": x["minValue"]} for x in (raw_reqs or [])]
         takeovers.append({
             "id": tid,
             "en": n["en"] or tid.replace("_", " "),
             "zh": n["zh"] or n["en"] or tid,
             "desc_en": d["en"],
             "desc_zh": d["zh"] or d["en"],
+            "reqs": reqs,
         })
 
     # BodyTypeAtlas only packs these 11 selectable presets.

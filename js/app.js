@@ -17,6 +17,7 @@ const state = {
   hand: "R",
   body: "Balanced",
   takeover: "Sharpshooter",
+  cb: {},
   editing: null,
 };
 
@@ -50,8 +51,27 @@ function setAttr(id, raw) {
   state.values = E.clampAllToCaps(state.values, state.caps);
 }
 
+function syncAttrInputs() {
+  document.querySelectorAll("[data-attr]").forEach((inp) => {
+    const id = inp.dataset.attr;
+    const cap = state.caps[id];
+    const v = state.values[id];
+    const live = E.cbRating(id, v, cap, state.cb[id] || 0);
+    inp.max = cap;
+    inp.value = v;
+    const row = inp.closest(".attr-row");
+    if (!row) return;
+    const extra = live > v ? ` <i class="cb-plus">+${live - v}</i>` : "";
+    row.querySelector(".attr-vals").innerHTML = `${live}${extra} <em>/ ${cap}</em>`;
+  });
+}
+
+function liveValues() {
+  return E.effectiveValues(state.values, state.caps, state.cb);
+}
+
 function ovr() {
-  return E.overall(state.game, state.values, state.pos);
+  return E.overall(state.game, liveValues(), state.pos);
 }
 
 function snapshot() {
@@ -64,6 +84,7 @@ function snapshot() {
     takeover: state.takeover,
     size: { ...state.size },
     values: { ...state.values },
+    cb: { ...state.cb },
     savedAt: Date.now(),
     ovr: ovr(),
   };
@@ -79,6 +100,7 @@ function applySnap(s) {
   state.takeover = s.takeover || "Sharpshooter";
   state.size = { ...s.size };
   state.values = { ...s.values };
+  state.cb = { ...(s.cb || {}) };
   refreshCaps();
 }
 
@@ -103,6 +125,7 @@ function renderShell() {
   const tabs = [
     ["body", "体型", "Body"],
     ["attrs", "属性", "Attrs"],
+    ["cb", "破帽", "Cap Break"],
     ["badges", "徽章", "Badges"],
     ["take", "主宰", "Takeover"],
     ["saves", "存档", "Saves"],
@@ -115,7 +138,7 @@ function renderShell() {
 function renderCard() {
   const g = state.game;
   const p = g.positions[state.pos];
-  const cats = E.categoryAverages(g, state.values);
+  const cats = E.categoryAverages(g, liveValues());
   const name = state.name || t("UNNAMED", "未命名");
   const u = state.units;
   const ht = E.fmtHeight(state.size.height, u);
@@ -134,6 +157,7 @@ function renderCard() {
       <div><span>${t("Wingspan", "臂展")}</span><b>${E.fmtHeight(state.size.wingspan, u)}</b></div>
       <div><span>${t("Height range", "身高区间")}</span><b>${E.fmtHeightRange(p.minHeight, p.maxHeight, u)}</b></div>
       <div><span>${t("Body", "体型")}</span><b>${escapeHtml(bodyName())}</b></div>
+      <div><span>${t("Cap breakers", "破帽")}</span><b>${E.cbUsed(state.cb)}</b></div>
     </div>
     <div class="radar">
       ${g.categories.map((c) => radarRow(c, cats[c.id] || 25)).join("")}
@@ -199,14 +223,16 @@ function renderAttrs() {
     for (const a of rows) {
       const v = state.values[a.id];
       const cap = state.caps[a.id];
+      const live = E.cbRating(a.id, v, cap, state.cb[a.id] || 0);
       const pct = ((cap - 25) / 74) * 100;
+      const extra = live > v ? ` <i class="cb-plus">+${live - v}</i>` : "";
       html += `<div class="attr-row">
         <b>${txt(a)}</b>
         <div class="slider-wrap">
           <div class="cap-mark" style="left:${pct}%"></div>
           <input type="range" min="25" max="${cap}" value="${v}" data-attr="${a.id}">
         </div>
-        <div class="attr-vals">${v} <em>/ ${cap}</em></div>
+        <div class="attr-vals">${live}${extra} <em>/ ${cap}</em></div>
       </div>`;
     }
     html += `</div>`;
@@ -216,33 +242,111 @@ function renderAttrs() {
 
 function renderBadges() {
   const g = state.game;
+  const vals = liveValues();
+  const h = state.size.height;
+  let unlocked = 0;
   const cards = g.badges.map((b) => {
-    const lv = E.badgeLevel(state.values, b.attrs);
+    const ht = h < (b.minHeight || 69) || h > (b.maxHeight || 88);
+    const lv = E.badgeLevel(vals, b, h);
+    if (lv > 0) unlocked += 1;
     const desc = t(b.short_en || b.desc_en, b.short_zh || b.desc_zh);
-    return `<article class="badge lv${lv}">
+    const need = badgeNeed(b, vals, ht);
+    return `<article class="badge lv${lv}${ht ? " ht" : ""}">
       <header>
         <h4>${t(b.en, b.zh)}</h4>
-        <span class="lvl">${LEVELS[lv]}</span>
+        <span class="lvl">${ht ? "HT" : LEVELS[lv]}</span>
       </header>
       <p>${escapeHtml(desc)}</p>
+      ${need}
     </article>`;
   }).join("");
-  $("#panel").innerHTML = `<h3>${t("Badges", "徽章")}</h3>
-    <p class="hint">${t("Levels are estimated from related attributes (60/75/85/92). Native min-attr tables are still in GameLib.", "等级按关联属性估算（60/75/85/92），精确门槛还在 GameLib 原生库里。")}</p>
+  $("#panel").innerHTML = `<h3>${t("Badges", "徽章")} · ${unlocked}/${g.badges.length}</h3>
+    <p class="hint">${t("Thresholds match the builder engine (Bronze / Silver / Gold / HOF). Legend is synergy, not an attribute gate. HT = height-locked.", "门槛对齐建模引擎（铜/银/金/名人堂）。Legend 靠协同，不是属性门槛。HT = 身高限制。")}</p>
     <div class="badge-grid">${cards}</div>`;
 }
 
+function badgeNeed(b, vals, ht) {
+  if (ht) {
+    return `<p class="need">${E.inchesToFeet(b.minHeight)}–${E.inchesToFeet(b.maxHeight)}</p>`;
+  }
+  const order = ["Bronze", "Silver", "Gold", "HallOfFame"];
+  let next = null;
+  for (let i = 0; i < order.length; i++) {
+    const items = b.reqs?.[order[i]];
+    if (items && items.length && !E.reqsMet(vals, items)) {
+      next = { lv: LEVELS[i + 1], items };
+      break;
+    }
+  }
+  if (!next) return "";
+  const bits = next.items.map((it) => {
+    const ok = (vals[it.a] ?? 25) >= it.v;
+    return `<span class="${ok ? "met" : ""}">${attrName(it.a)} ${it.v}</span>`;
+  }).join(" / ");
+  return `<p class="need">${next.lv}: ${bits}</p>`;
+}
+
+function attrName(id) {
+  const a = state.game.attributes.find((x) => x.id === id);
+  return a ? txt(a) : id;
+}
+
 function renderTake() {
+  const vals = liveValues();
+  let ready = 0;
   const cards = state.game.takeovers.map((tk) => {
+    const ok = E.takeoverOk(vals, tk);
+    if (ok) ready += 1;
     const on = state.takeover === tk.id ? "on" : "";
-    return `<article class="take ${on}" data-take="${tk.id}">
-      <header><h4>${t(tk.en, tk.zh)}</h4></header>
+    const req = (tk.reqs || []).map((r) => {
+      const met = (vals[r.a] ?? 25) >= r.v;
+      return `<span class="${met ? "met" : ""}">${attrName(r.a)} ${r.v}</span>`;
+    }).join(" / ");
+    return `<article class="take ${on}${ok ? " ok" : " locked"}" data-take="${tk.id}">
+      <header><h4>${t(tk.en, tk.zh)}</h4><span class="lvl">${ok ? t("Ready", "可装备") : t("Locked", "未达标")}</span></header>
       <p>${escapeHtml(t(tk.desc_en, tk.desc_zh))}</p>
+      ${req ? `<p class="need">${req}</p>` : ""}
     </article>`;
   }).join("");
-  $("#panel").innerHTML = `<h3>${t("Takeover", "主宰")}</h3>
-    <p class="hint">${t("Pick a Level 5 ability. Requirements are shown as flavor, not hard-locked.", "选一个 5 级主宰能力。")}</p>
+  $("#panel").innerHTML = `<h3>${t("Takeover", "主宰")} · ${ready}/${state.game.takeovers.length}</h3>
+    <p class="hint">${t("Level 5 ability. Requirements come from the builder engine.", "5 级主宰。门槛来自建模引擎。")}</p>
     <div class="take-grid">${cards}</div>`;
+}
+
+function renderCB() {
+  const g = state.game;
+  const used = E.cbUsed(state.cb);
+  let html = `<h3>${t("Cap Breakers", "破帽")} · ${used}</h3>
+    <p class="hint">${t("Up to 5 per attribute. Low ratings jump more; high ratings about +1. Cannot pass the cap. Apply after the build is 99 OVR in-game.", "每项最多 5 档。低属性加得多，高属性大约 +1，不超过该项上限。游戏里要先把模板拉到 99 综评才能破帽。")}</p>
+    <div class="cb-toolbar"><button class="ghost" id="cb-clear">${t("Clear all", "清空破帽")}</button></div>`;
+  for (const cat of g.categories) {
+    const rows = g.attributes.filter((a) => a.cat === cat.id);
+    html += `<div class="cat-block"><div class="cat-head"><span>${txt(cat)}</span></div>`;
+    for (const a of rows) html += cbRow(a);
+    html += `</div>`;
+  }
+  $("#panel").innerHTML = html;
+}
+
+function cbRow(a) {
+  const cap = state.caps[a.id];
+  const base = state.values[a.id];
+  const n = state.cb[a.id] || 0;
+  const live = E.cbRating(a.id, base, cap, n);
+  const maxed = base >= cap;
+  let cells = "";
+  for (let i = 1; i <= 5; i++) {
+    const v = E.cbRating(a.id, base, cap, i);
+    const d = v - base;
+    const on = n >= i ? "on" : "";
+    const lab = d > 0 ? `+${d}` : maxed ? "max" : "—";
+    cells += `<button class="cb-t ${on}" data-cb="${a.id}" data-tier="${i}">${lab}</button>`;
+  }
+  return `<div class="cb-row">
+    <b>${txt(a)}</b>
+    <div class="cb-tiers">${cells}</div>
+    <div class="attr-vals">${live} <em>/ ${cap}</em></div>
+  </div>`;
 }
 
 function renderSaves() {
@@ -267,6 +371,7 @@ function renderSaves() {
 function renderPanel() {
   if (state.tab === "body") renderBody();
   else if (state.tab === "attrs") renderAttrs();
+  else if (state.tab === "cb") renderCB();
   else if (state.tab === "badges") renderBadges();
   else if (state.tab === "take") renderTake();
   else renderSaves();
@@ -318,49 +423,47 @@ function onClick(ev) {
   const tab = ev.target.closest("[data-tab]");
   if (tab) {
     state.tab = tab.dataset.tab;
-    render();
-    return;
+    return render();
   }
   const pos = ev.target.closest("[data-pos]");
   if (pos) return onPos(pos.dataset.pos);
-  const hand = ev.target.closest("[data-hand]");
-  if (hand) {
-    state.hand = hand.dataset.hand;
-    render();
-    return;
-  }
-  const body = ev.target.closest("[data-body]");
-  if (body) {
-    state.body = body.dataset.body;
-    render();
-    return;
-  }
-  const take = ev.target.closest("[data-take]");
-  if (take) {
-    state.takeover = take.dataset.take;
-    render();
-    return;
+  const pick = ev.target.closest("[data-hand],[data-body],[data-take],[data-cb]");
+  if (pick) return onPick(pick);
+  if (ev.target.id === "cb-clear") {
+    state.cb = {};
+    return render();
   }
   if (ev.target.id === "lang") {
     state.lang = state.lang === "zh" ? "en" : "zh";
-    render();
-    return;
+    return render();
   }
   if (ev.target.id === "units") {
     state.units = state.units === "metric" ? "imperial" : "metric";
     localStorage.setItem(UNITS_KEY, state.units);
-    render();
-    return;
+    return render();
   }
+  onSaveClick(ev);
+}
+
+function onPick(el) {
+  if (el.dataset.hand) state.hand = el.dataset.hand;
+  else if (el.dataset.body) state.body = el.dataset.body;
+  else if (el.dataset.take) state.takeover = el.dataset.take;
+  else if (el.dataset.cb) {
+    const id = el.dataset.cb;
+    const tier = Number(el.dataset.tier);
+    state.cb[id] = state.cb[id] === tier ? 0 : tier;
+  }
+  render();
+}
+
+function onSaveClick(ev) {
   if (ev.target.id === "save-now") return saveCurrent();
   if (ev.target.id === "export-now") {
     downloadJson(snapshot(), `${state.name || "build"}.json`);
     return;
   }
-  if (ev.target.id === "import-now") {
-    $("#import-file").click();
-    return;
-  }
+  if (ev.target.id === "import-now") return $("#import-file").click();
   const load = ev.target.closest("[data-load]");
   if (load) {
     applySnap(loadList()[Number(load.dataset.load)]);
@@ -389,16 +492,7 @@ function onInput(ev) {
   if (attr) {
     setAttr(attr, Number(ev.target.value));
     renderCard();
-    document.querySelectorAll("[data-attr]").forEach((inp) => {
-      const id = inp.dataset.attr;
-      inp.max = state.caps[id];
-      inp.value = state.values[id];
-      const row = inp.closest(".attr-row");
-      if (row) {
-        row.querySelector(".attr-vals").innerHTML =
-          `${state.values[id]} <em>/ ${state.caps[id]}</em>`;
-      }
-    });
+    syncAttrInputs();
     return;
   }
   if (ev.target.id === "height") {
@@ -473,7 +567,7 @@ function boot(game) {
     state.units = params.get("units");
   }
   const hash = location.hash.replace("#", "");
-  if (["body", "attrs", "badges", "take", "saves"].includes(hash)) state.tab = hash;
+  if (["body", "attrs", "cb", "badges", "take", "saves"].includes(hash)) state.tab = hash;
   state.size = E.defaultSize(game, state.pos);
   state.caps = E.allCaps(game, state.size);
   state.values = E.defaultValues(game, state.caps);
@@ -485,9 +579,11 @@ Promise.all([
   fetch("data/game.json").then((r) => r.json()),
   fetch("data/caps.bin").then((r) => r.arrayBuffer()),
   fetch("data/caps-index.json").then((r) => r.json()),
+  fetch("data/cb.bin").then((r) => r.arrayBuffer()),
 ])
-  .then(([game, buf, idx]) => {
+  .then(([game, buf, idx, cbBuf]) => {
     E.installCaps(new Uint8Array(buf), idx);
+    E.installCB(new Uint8Array(cbBuf), game.attributes.map((a) => a.id));
     boot(game);
   })
   .catch((err) => {

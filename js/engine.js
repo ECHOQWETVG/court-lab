@@ -93,11 +93,48 @@ function heightMul(game, height, attr) {
 let capLut = null;
 let capIndex = null;
 let capAttrs = null;
+let cbLut = null;
+let cbAttrs = null;
 
 function installCaps(bytes, meta) {
   capLut = bytes;
   capIndex = meta.index;
   capAttrs = meta.attrs;
+}
+
+function installCB(bytes, attrs) {
+  cbLut = bytes;
+  cbAttrs = attrs;
+}
+
+function lutCB(attr, current, tier) {
+  if (!cbLut || !cbAttrs || tier <= 0) return current;
+  const ai = cbAttrs.indexOf(attr);
+  if (ai < 0) return current;
+  const v = clamp(Math.round(current), 25, 99);
+  const n = clamp(Math.round(tier), 1, 5);
+  return cbLut[ai * 375 + (v - 25) * 5 + (n - 1)];
+}
+
+function cbRating(attr, current, cap, tier) {
+  const lo = 25;
+  const hi = cap ?? 99;
+  if (tier <= 0) return clamp(current, lo, hi);
+  return clamp(lutCB(attr, current, tier), lo, hi);
+}
+
+function effectiveValues(values, caps, cbMap) {
+  const out = {};
+  for (const id of Object.keys(values)) {
+    out[id] = cbRating(id, values[id], caps[id] ?? 99, cbMap[id] || 0);
+  }
+  return out;
+}
+
+function cbUsed(cbMap) {
+  let n = 0;
+  for (const id of Object.keys(cbMap)) n += cbMap[id] || 0;
+  return n;
 }
 
 function lutCaps(size) {
@@ -178,7 +215,32 @@ function overall(game, values, position) {
   return clamp(Math.round((num / den) * 99), 25, 99);
 }
 
-function badgeLevel(values, attrs) {
+function reqsMet(values, items) {
+  if (!items || !items.length) return false;
+  let acc = null;
+  let op = null;
+  for (const it of items) {
+    const ok = (values[it.a] ?? 25) >= it.v;
+    if (acc == null) acc = ok;
+    else if (op === "OR") acc = acc || ok;
+    else acc = acc && ok;
+    op = it.op;
+  }
+  return !!acc;
+}
+
+function badgeLevel(values, badge, height) {
+  if (badge.minHeight != null && height < badge.minHeight) return 0;
+  if (badge.maxHeight != null && height > badge.maxHeight) return 0;
+  const order = ["Bronze", "Silver", "Gold", "HallOfFame"];
+  if (badge.reqs) {
+    let lv = 0;
+    for (let i = 0; i < order.length; i++) {
+      if (reqsMet(values, badge.reqs[order[i]])) lv = i + 1;
+    }
+    return lv;
+  }
+  const attrs = badge.attrs || [];
   if (!attrs.length) return 0;
   const best = Math.max(...attrs.map((id) => values[id] ?? 25));
   if (best >= 92) return 4;
@@ -186,6 +248,12 @@ function badgeLevel(values, attrs) {
   if (best >= 75) return 2;
   if (best >= 60) return 1;
   return 0;
+}
+
+function takeoverOk(values, takeover) {
+  const reqs = takeover.reqs || [];
+  if (!reqs.length) return true;
+  return reqs.every((r) => (values[r.a] ?? 25) >= r.v);
 }
 
 function categoryAverages(game, values) {
@@ -239,6 +307,7 @@ function weightRange(game, height, posShort) {
 
 window.Engine = {
   installCaps,
+  installCB,
   clamp,
   inchesToFeet,
   fmtHeight,
@@ -249,10 +318,15 @@ window.Engine = {
   applyConstraints,
   clampAllToCaps,
   overall,
+  reqsMet,
   badgeLevel,
+  takeoverOk,
   categoryAverages,
   defaultSize,
   defaultValues,
   wingspanRange,
   weightRange,
+  cbRating,
+  effectiveValues,
+  cbUsed,
 };
