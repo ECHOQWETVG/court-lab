@@ -95,6 +95,8 @@ let capIndex = null;
 let capAttrs = null;
 let cbLut = null;
 let cbAttrs = null;
+let conLut = null;
+let conAttrs = null;
 
 function installCaps(bytes, meta) {
   capLut = bytes;
@@ -105,6 +107,20 @@ function installCaps(bytes, meta) {
 function installCB(bytes, attrs) {
   cbLut = bytes;
   cbAttrs = attrs;
+}
+
+function installCon(bytes, attrs) {
+  conLut = bytes;
+  conAttrs = attrs;
+}
+
+function lutCon(height, srcIdx, value) {
+  const h = clamp(height, 69, 88);
+  const v = clamp(Math.round(value), 25, 99);
+  const off = (((h - 69) * 21 + srcIdx) * 75 + (v - 25)) * 21;
+  const row = {};
+  for (let i = 0; i < 21; i++) row[conAttrs[i]] = conLut[off + i];
+  return row;
 }
 
 function lutCB(attr, current, tier) {
@@ -173,27 +189,24 @@ function allCaps(game, size) {
 
 function applyConstraints(game, values, caps, height, edited) {
   const next = { ...values };
+  const ids = conAttrs || game.attributes.map((a) => a.id);
+  const si = ids.indexOf(edited);
   const h = String(clamp(height, 69, 88));
-  const floor = {};
-  const bump = (src, dst, delta, lock) => {
-    if (dst === edited || next[dst] == null) return false;
-    const cap = caps[dst] ?? 99;
-    let lo = Math.max(25, next[src] - delta);
-    const hi = Math.min(cap, next[src] + delta);
-    if (floor[dst] != null) lo = Math.max(lo, floor[dst]);
-    const prev = next[dst];
-    next[dst] = clamp(next[dst], lo, hi);
-    if (lock) floor[dst] = Math.max(floor[dst] ?? 25, lo);
-    return next[dst] !== prev;
-  };
-  const changed = [];
-  for (const c of game.constraints[edited]?.[h] || []) {
-    if (bump(edited, c.attr, c.delta, true)) changed.push(c.attr);
-  }
-  for (const src of changed) {
-    for (const c of game.constraints[src]?.[h] || []) {
-      bump(src, c.attr, c.delta, false);
+  if (conLut && si >= 0) {
+    const lut = lutCon(height, si, values[edited]);
+    for (const id of ids) {
+      if (id === edited) continue;
+      const cap = caps[id] ?? 99;
+      if ((values[id] ?? 25) === 25) next[id] = clamp(lut[id], 25, cap);
     }
+  }
+  for (const c of game.constraints[edited]?.[h] || []) {
+    if (c.attr === edited || next[c.attr] == null) continue;
+    if ((values[c.attr] ?? 25) === 25 && conLut) continue;
+    const cap = caps[c.attr] ?? 99;
+    const lo = Math.max(25, next[edited] - c.delta);
+    const hi = Math.min(cap, next[edited] + c.delta);
+    next[c.attr] = clamp(next[c.attr], lo, hi);
   }
   return next;
 }
@@ -323,6 +336,7 @@ function weightRange(game, height, posShort) {
 window.Engine = {
   installCaps,
   installCB,
+  installCon,
   clamp,
   inchesToFeet,
   fmtHeight,

@@ -610,10 +610,13 @@ Promise.all([
   fetch("data/caps.bin").then((r) => r.arrayBuffer()),
   fetch("data/caps-index.json").then((r) => r.json()),
   fetch("data/cb.bin").then((r) => r.arrayBuffer()),
+  fetch("data/con.bin").then((r) => r.arrayBuffer()),
 ])
-  .then(([game, buf, idx, cbBuf]) => {
+  .then(([game, buf, idx, cbBuf, conBuf]) => {
+    const ids = game.attributes.map((a) => a.id);
     E.installCaps(new Uint8Array(buf), idx);
-    E.installCB(new Uint8Array(cbBuf), game.attributes.map((a) => a.id));
+    E.installCB(new Uint8Array(cbBuf), ids);
+    E.installCon(new Uint8Array(conBuf), ids);
     boot(game);
   })
   .catch((err) => {

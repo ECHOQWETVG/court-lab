@@ -441,7 +441,7 @@ def main():
         "weightTable": weight_table,
         "wingspanTable": wingspan_table,
         "weightRanges": weight_ranges,
-        "constraints": constraints_out,
+        "constraints": json.loads((OUT.parent / "constraints.json").read_text()) if (OUT.parent / "constraints.json").exists() else constraints_out,
         "grades": grades,
         "importance": importance,
         "initial": initial,
