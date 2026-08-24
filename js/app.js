@@ -52,14 +52,33 @@ function setAttr(id, raw) {
   state.values = E.clampAllToCaps(state.values, state.caps);
 }
 
-function syncAttrInputs() {
+function paintSlide(inp) {
+  const min = Number(inp.min);
+  const max = Number(inp.max);
+  const v = Number(inp.value);
+  const pct = max === min ? 0 : ((v - min) / (max - min)) * 100;
+  inp.style.setProperty("--pct", `${pct}%`);
+}
+
+function paintAllSlides() {
+  document.querySelectorAll("input.slide").forEach(paintSlide);
+}
+
+function setFieldVal(id, text) {
+  const inp = document.getElementById(id);
+  const el = inp?.closest("label")?.querySelector(".field-val");
+  if (el) el.textContent = text;
+}
+
+function syncAttrInputs(except) {
   document.querySelectorAll("[data-attr]").forEach((inp) => {
     const id = inp.dataset.attr;
     const cap = state.caps[id];
     const v = state.values[id];
     const live = E.cbRating(id, v, cap, state.cb[id] || 0);
     inp.max = cap;
-    inp.value = v;
+    if (inp !== except) inp.value = v;
+    paintSlide(inp);
     const row = inp.closest(".attr-row");
     if (!row) return;
     const extra = live > v ? ` <i class="cb-plus">+${live - v}</i>` : "";
@@ -193,14 +212,14 @@ function renderBody() {
     <div class="field-grid">
       <label class="field">${t("First / last name", "名字")}<input id="name" type="text" value="${escapeHtml(state.name)}" maxlength="24"></label>
       <label class="field">${t("Jersey", "球衣号码")}<input id="jersey" type="number" min="0" max="99" value="${state.jersey}"></label>
-      <label class="field">${t("Height", "身高")} ${E.fmtHeight(state.size.height, state.units)}
-        <input id="height" type="range" min="${p.minHeight}" max="${p.maxHeight}" value="${state.size.height}">
+      <label class="field"><span>${t("Height", "身高")} <b class="field-val">${E.fmtHeight(state.size.height, state.units)}</b></span>
+        <input id="height" class="slide" type="range" min="${p.minHeight}" max="${p.maxHeight}" step="1" value="${state.size.height}">
       </label>
-      <label class="field">${t("Weight", "体重")} ${E.fmtWeight(state.size.weight, state.units)}
-        <input id="weight" type="range" min="${wt.min}" max="${wt.max}" value="${state.size.weight}">
+      <label class="field"><span>${t("Weight", "体重")} <b class="field-val">${E.fmtWeight(state.size.weight, state.units)}</b></span>
+        <input id="weight" class="slide" type="range" min="${wt.min}" max="${wt.max}" step="1" value="${state.size.weight}">
       </label>
-      <label class="field">${t("Wingspan", "臂展")} ${E.fmtHeight(state.size.wingspan, state.units)}
-        <input id="wingspan" type="range" min="${wr.min}" max="${wr.max}" value="${E.clamp(state.size.wingspan, wr.min, wr.max)}">
+      <label class="field"><span>${t("Wingspan", "臂展")} <b class="field-val">${E.fmtHeight(state.size.wingspan, state.units)}</b></span>
+        <input id="wingspan" class="slide" type="range" min="${wr.min}" max="${wr.max}" step="1" value="${E.clamp(state.size.wingspan, wr.min, wr.max)}">
       </label>
       <label class="field">${t("Hand", "惯用手")}
         <div class="chip-row" style="margin-top:6px">
@@ -239,7 +258,7 @@ function attrRow(a) {
     <b class="attr-name${on}" data-inspect="${a.id}">${txt(a)}</b>
     <div class="slider-wrap">
       <div class="cap-mark" style="left:${pct}%"></div>
-      <input type="range" min="25" max="${cap}" value="${v}" data-attr="${a.id}">
+      <input class="slide" type="range" min="25" max="${cap}" step="1" value="${v}" data-attr="${a.id}">
     </div>
     <div class="attr-vals">${live}${extra} <em>/ ${cap}</em></div>
   </div>`;
@@ -413,6 +432,7 @@ function render() {
   renderShell();
   renderCard();
   renderPanel();
+  paintAllSlides();
 }
 
 function onPos(pos) {
@@ -518,41 +538,57 @@ function onSaveClick(ev) {
 }
 
 function onInput(ev) {
-  const attr = ev.target.dataset.attr;
-  if (attr) {
-    setAttr(attr, Number(ev.target.value));
+  const el = ev.target;
+  if (el.dataset.attr) {
+    setAttr(el.dataset.attr, Number(el.value));
+    paintSlide(el);
     renderCard();
-    syncAttrInputs();
+    syncAttrInputs(el);
     return;
   }
-  if (ev.target.id === "height") {
-    const p = state.game.positions[state.pos];
-    state.size.height = E.clamp(Number(ev.target.value), p.minHeight, p.maxHeight);
+  if (el.id === "height" || el.id === "weight" || el.id === "wingspan") {
+    onSizeSlide(el);
+  }
+}
+
+function onSizeSlide(el) {
+  const g = state.game;
+  const p = g.positions[state.pos];
+  if (el.id === "height") {
+    state.size.height = E.clamp(Number(el.value), p.minHeight, p.maxHeight);
     const wr = E.wingspanRange(state.size.height);
+    const wt = E.weightRange(g, state.size.height, state.pos);
     state.size.wingspan = E.clamp(state.size.wingspan, wr.min, wr.max);
-    const wt = E.weightRange(state.game, state.size.height, state.pos);
     state.size.weight = E.clamp(state.size.weight, wt.min, wt.max);
-    refreshCaps();
-    render();
-    return;
-  }
-  if (ev.target.id === "weight") {
-    const wt = E.weightRange(state.game, state.size.height, state.pos);
-    state.size.weight = E.clamp(Number(ev.target.value), wt.min, wt.max);
-    refreshCaps();
-    renderCard();
-    const lab = ev.target.closest("label");
-    if (lab) lab.childNodes[0].textContent = `${t("Weight", "体重")} ${E.fmtWeight(state.size.weight, state.units)}`;
-    return;
-  }
-  if (ev.target.id === "wingspan") {
+    const wInp = $("#weight");
+    const sInp = $("#wingspan");
+    if (wInp) {
+      wInp.min = wt.min;
+      wInp.max = wt.max;
+      wInp.value = state.size.weight;
+      paintSlide(wInp);
+    }
+    if (sInp) {
+      sInp.min = wr.min;
+      sInp.max = wr.max;
+      sInp.value = state.size.wingspan;
+      paintSlide(sInp);
+    }
+    setFieldVal("height", E.fmtHeight(state.size.height, state.units));
+    setFieldVal("weight", E.fmtWeight(state.size.weight, state.units));
+    setFieldVal("wingspan", E.fmtHeight(state.size.wingspan, state.units));
+  } else if (el.id === "weight") {
+    const wt = E.weightRange(g, state.size.height, state.pos);
+    state.size.weight = E.clamp(Number(el.value), wt.min, wt.max);
+    setFieldVal("weight", E.fmtWeight(state.size.weight, state.units));
+  } else {
     const wr = E.wingspanRange(state.size.height);
-    state.size.wingspan = E.clamp(Number(ev.target.value), wr.min, wr.max);
-    refreshCaps();
-    renderCard();
-    const lab = ev.target.closest("label");
-    if (lab) lab.childNodes[0].textContent = `${t("Wingspan", "臂展")} ${E.fmtHeight(state.size.wingspan, state.units)}`;
+    state.size.wingspan = E.clamp(Number(el.value), wr.min, wr.max);
+    setFieldVal("wingspan", E.fmtHeight(state.size.wingspan, state.units));
   }
+  paintSlide(el);
+  refreshCaps();
+  renderCard();
 }
 
 function onChange(ev) {
