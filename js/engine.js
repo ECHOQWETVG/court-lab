@@ -90,16 +90,47 @@ function heightMul(game, height, attr) {
   return lerp(a, b, (h - lo) / (hi - lo));
 }
 
-function attrCap(game, attr, size) {
+let capLut = null;
+let capIndex = null;
+let capAttrs = null;
+
+function installCaps(bytes, meta) {
+  capLut = bytes;
+  capIndex = meta.index;
+  capAttrs = meta.attrs;
+}
+
+function lutCaps(size) {
+  if (!capLut || !capIndex) return null;
+  const h = size.height;
+  const meta = capIndex[String(h)];
+  if (!meta) return null;
+  const w = clamp(size.weight, meta.w0, meta.w1);
+  const s = clamp(size.wingspan, h, h + 6);
+  const p = meta.off + ((w - meta.w0) * 7 + (s - h)) * 21;
+  const out = {};
+  for (let i = 0; i < 21; i++) out[capAttrs[i]] = capLut[p + i];
+  return out;
+}
+
+function formulaCap(game, attr, size) {
   const hMul = heightMul(game, size.height, attr);
   const wMul = tableMul(game.weightTable, size.height, size.weight, "w", attr);
   const sMul = tableMul(game.wingspanTable, size.height, size.wingspan, "s", attr);
   return clamp(Math.round(25 + 74 * hMul * wMul * sMul), 25, 99);
 }
 
+function attrCap(game, attr, size) {
+  const lut = lutCaps(size);
+  if (lut && lut[attr] != null) return lut[attr];
+  return formulaCap(game, attr, size);
+}
+
 function allCaps(game, size) {
+  const lut = lutCaps(size);
+  if (lut) return { ...lut };
   const out = {};
-  for (const a of game.attributes) out[a.id] = attrCap(game, a.id, size);
+  for (const a of game.attributes) out[a.id] = formulaCap(game, a.id, size);
   return out;
 }
 
@@ -207,6 +238,7 @@ function weightRange(game, height, posShort) {
 }
 
 window.Engine = {
+  installCaps,
   clamp,
   inchesToFeet,
   fmtHeight,

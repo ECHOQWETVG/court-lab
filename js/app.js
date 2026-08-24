@@ -481,9 +481,15 @@ function boot(game) {
   render();
 }
 
-fetch("data/game.json")
-  .then((r) => r.json())
-  .then(boot)
+Promise.all([
+  fetch("data/game.json").then((r) => r.json()),
+  fetch("data/caps.bin").then((r) => r.arrayBuffer()),
+  fetch("data/caps-index.json").then((r) => r.json()),
+])
+  .then(([game, buf, idx]) => {
+    E.installCaps(new Uint8Array(buf), idx);
+    boot(game);
+  })
   .catch((err) => {
     document.body.innerHTML = `<p style="padding:24px">Failed to load data: ${err}</p>`;
   });
