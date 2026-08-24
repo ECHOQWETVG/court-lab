@@ -174,21 +174,36 @@ function allCaps(game, size) {
 function applyConstraints(game, values, caps, height, edited) {
   const next = { ...values };
   const h = String(clamp(height, 69, 88));
-  const bump = (src, dst, delta) => {
-    if (next[dst] == null) return;
-    const lo = next[src] - delta;
-    const hi = next[src] + delta;
+  const floor = {};
+  const bump = (src, dst, delta, lock) => {
+    if (dst === edited || next[dst] == null) return false;
     const cap = caps[dst] ?? 99;
-    next[dst] = clamp(next[dst], Math.max(25, lo), Math.min(cap, hi));
+    let lo = Math.max(25, next[src] - delta);
+    const hi = Math.min(cap, next[src] + delta);
+    if (floor[dst] != null) lo = Math.max(lo, floor[dst]);
+    const prev = next[dst];
+    next[dst] = clamp(next[dst], lo, hi);
+    if (lock) floor[dst] = Math.max(floor[dst] ?? 25, lo);
+    return next[dst] !== prev;
   };
-  const list = game.constraints[edited]?.[h] || [];
-  for (const c of list) bump(edited, c.attr, c.delta);
-  for (const [src, byH] of Object.entries(game.constraints)) {
-    for (const c of byH[h] || []) {
-      if (c.attr === edited) bump(edited, src, c.delta);
+  const changed = [];
+  for (const c of game.constraints[edited]?.[h] || []) {
+    if (bump(edited, c.attr, c.delta, true)) changed.push(c.attr);
+  }
+  for (const src of changed) {
+    for (const c of game.constraints[src]?.[h] || []) {
+      bump(src, c.attr, c.delta, false);
     }
   }
   return next;
+}
+
+function constraintLinks(game, attr, height) {
+  return game.constraints[attr]?.[String(clamp(height, 69, 88))] || [];
+}
+
+function boundFloor(srcVal, delta) {
+  return Math.max(25, srcVal - delta);
 }
 
 function clampAllToCaps(values, caps) {
@@ -316,6 +331,8 @@ window.Engine = {
   attrCap,
   allCaps,
   applyConstraints,
+  constraintLinks,
+  boundFloor,
   clampAllToCaps,
   overall,
   reqsMet,

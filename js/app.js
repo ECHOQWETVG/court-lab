@@ -18,6 +18,7 @@ const state = {
   body: "Balanced",
   takeover: "Sharpshooter",
   cb: {},
+  inspect: null,
   editing: null,
 };
 
@@ -216,28 +217,51 @@ function renderBody() {
 
 function renderAttrs() {
   const g = state.game;
-  let html = `<h3>${t("Attributes", "属性")}</h3><p class="hint">${t("Caps follow height / weight / wingspan. Related stats stay within max delta.", "上限跟身高体重臂展走。关联属性会被互锁。")}</p>`;
+  let html = `<h3>${t("Attributes", "属性")}</h3><p class="hint">${t("Caps follow height / weight / wingspan. Click a name to see what it binds at this height.", "上限跟身高体重臂展走。点属性名看当前身高的绑定。")}</p>`;
+  html += inspectBox();
   for (const cat of g.categories) {
     const rows = g.attributes.filter((a) => a.cat === cat.id);
     html += `<div class="cat-block"><div class="cat-head"><span>${txt(cat)}</span></div>`;
-    for (const a of rows) {
-      const v = state.values[a.id];
-      const cap = state.caps[a.id];
-      const live = E.cbRating(a.id, v, cap, state.cb[a.id] || 0);
-      const pct = ((cap - 25) / 74) * 100;
-      const extra = live > v ? ` <i class="cb-plus">+${live - v}</i>` : "";
-      html += `<div class="attr-row">
-        <b>${txt(a)}</b>
-        <div class="slider-wrap">
-          <div class="cap-mark" style="left:${pct}%"></div>
-          <input type="range" min="25" max="${cap}" value="${v}" data-attr="${a.id}">
-        </div>
-        <div class="attr-vals">${live}${extra} <em>/ ${cap}</em></div>
-      </div>`;
-    }
+    for (const a of rows) html += attrRow(a);
     html += `</div>`;
   }
   $("#panel").innerHTML = html;
+}
+
+function attrRow(a) {
+  const v = state.values[a.id];
+  const cap = state.caps[a.id];
+  const live = E.cbRating(a.id, v, cap, state.cb[a.id] || 0);
+  const pct = ((cap - 25) / 74) * 100;
+  const extra = live > v ? ` <i class="cb-plus">+${live - v}</i>` : "";
+  const on = state.inspect === a.id ? " on" : "";
+  return `<div class="attr-row">
+    <b class="attr-name${on}" data-inspect="${a.id}">${txt(a)}</b>
+    <div class="slider-wrap">
+      <div class="cap-mark" style="left:${pct}%"></div>
+      <input type="range" min="25" max="${cap}" value="${v}" data-attr="${a.id}">
+    </div>
+    <div class="attr-vals">${live}${extra} <em>/ ${cap}</em></div>
+  </div>`;
+}
+
+function inspectBox() {
+  const id = state.inspect;
+  if (!id) return "";
+  const a = state.game.attributes.find((x) => x.id === id);
+  if (!a) return "";
+  const v = state.values[id];
+  const links = E.constraintLinks(state.game, id, state.size.height);
+  if (!links.length) {
+    return `<div class="inspect">${txt(a)} · ${t("no binds at this height", "这个身高没有绑定")}</div>`;
+  }
+  const rows = links.map((c) => {
+    const floor = E.boundFloor(v, c.delta);
+    const have = state.values[c.attr] ?? 25;
+    const bind = v - have >= c.delta - 1;
+    return `<span class="${bind ? "met" : ""}">${attrName(c.attr)} ≥ ${floor} <em>Δ${c.delta}</em></span>`;
+  }).join("");
+  return `<div class="inspect"><b>${txt(a)} ${v}</b>${rows}</div>`;
 }
 
 function renderBadges() {
@@ -427,6 +451,12 @@ function onClick(ev) {
   }
   const pos = ev.target.closest("[data-pos]");
   if (pos) return onPos(pos.dataset.pos);
+  const insp = ev.target.closest("[data-inspect]");
+  if (insp) {
+    const id = insp.dataset.inspect;
+    state.inspect = state.inspect === id ? null : id;
+    return render();
+  }
   const pick = ev.target.closest("[data-hand],[data-body],[data-take],[data-cb]");
   if (pick) return onPick(pick);
   if (ev.target.id === "cb-clear") {
