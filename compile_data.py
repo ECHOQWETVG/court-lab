@@ -368,6 +368,11 @@ def main():
     ]
     body = [{"id": i, "en": e, "zh": z} for i, e, z in BODY_ATLAS]
 
+    weights_by_h = defaultdict(list)
+    for row in weight_table:
+        weights_by_h[row["h"]].append(row["w"])
+    weight_ranges = {str(h): [min(ws), max(ws)] for h, ws in weights_by_h.items()}
+
     data = {
         "league": "NBA",
         "attributes": attributes,
@@ -383,6 +388,7 @@ def main():
         "heightMult": height_mult,
         "weightTable": weight_table,
         "wingspanTable": wingspan_table,
+        "weightRanges": weight_ranges,
         "constraints": constraints_out,
         "grades": grades,
         "importance": importance,

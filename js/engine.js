@@ -94,7 +94,7 @@ function attrCap(game, attr, size) {
   const hMul = heightMul(game, size.height, attr);
   const wMul = tableMul(game.weightTable, size.height, size.weight, "w", attr);
   const sMul = tableMul(game.wingspanTable, size.height, size.wingspan, "s", attr);
-  return clamp(Math.round(99 * hMul * wMul * sMul), 25, 99);
+  return clamp(Math.round(25 + 74 * hMul * wMul * sMul), 25, 99);
 }
 
 function allCaps(game, size) {
@@ -190,6 +190,22 @@ function wingspanRange(height) {
   return { min: height, max: height + 6 };
 }
 
+function weightRange(game, height, posShort) {
+  const p = game.positions[posShort];
+  const row = game.weightRanges?.[String(height)];
+  let minW = p.minWeight;
+  let maxW = p.maxWeight;
+  if (row) {
+    minW = Math.max(minW, row[0]);
+    maxW = Math.min(maxW, row[1]);
+  }
+  if (minW > maxW) {
+    minW = p.minWeight;
+    maxW = p.maxWeight;
+  }
+  return { min: minW, max: maxW };
+}
+
 window.Engine = {
   clamp,
   inchesToFeet,
@@ -206,4 +222,5 @@ window.Engine = {
   defaultSize,
   defaultValues,
   wingspanRange,
+  weightRange,
 };

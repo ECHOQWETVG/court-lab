@@ -154,6 +154,7 @@ function renderBody() {
   const g = state.game;
   const p = g.positions[state.pos];
   const wr = E.wingspanRange(state.size.height);
+  const wt = E.weightRange(g, state.size.height, state.pos);
   const posBtns = Object.keys(g.positions)
     .map((id) => `<button class="chip ${state.pos === id ? "on" : ""}" data-pos="${id}">${id}</button>`)
     .join("");
@@ -171,7 +172,7 @@ function renderBody() {
         <input id="height" type="range" min="${p.minHeight}" max="${p.maxHeight}" value="${state.size.height}">
       </label>
       <label class="field">${t("Weight", "体重")} ${E.fmtWeight(state.size.weight, state.units)}
-        <input id="weight" type="range" min="${p.minWeight}" max="${p.maxWeight}" value="${state.size.weight}">
+        <input id="weight" type="range" min="${wt.min}" max="${wt.max}" value="${state.size.weight}">
       </label>
       <label class="field">${t("Wingspan", "臂展")} ${E.fmtHeight(state.size.wingspan, state.units)}
         <input id="wingspan" type="range" min="${wr.min}" max="${wr.max}" value="${E.clamp(state.size.wingspan, wr.min, wr.max)}">
@@ -290,7 +291,8 @@ function onPos(pos) {
   state.pos = pos;
   const p = g.positions[pos];
   state.size.height = E.clamp(state.size.height, p.minHeight, p.maxHeight);
-  state.size.weight = E.clamp(state.size.weight, p.minWeight, p.maxWeight);
+  const wt = E.weightRange(g, state.size.height, pos);
+  state.size.weight = E.clamp(state.size.weight, wt.min, wt.max);
   const wr = E.wingspanRange(state.size.height);
   state.size.wingspan = E.clamp(state.size.wingspan, wr.min, wr.max);
   refreshCaps();
@@ -404,15 +406,15 @@ function onInput(ev) {
     state.size.height = E.clamp(Number(ev.target.value), p.minHeight, p.maxHeight);
     const wr = E.wingspanRange(state.size.height);
     state.size.wingspan = E.clamp(state.size.wingspan, wr.min, wr.max);
+    const wt = E.weightRange(state.game, state.size.height, state.pos);
+    state.size.weight = E.clamp(state.size.weight, wt.min, wt.max);
     refreshCaps();
-    renderCard();
-    const lab = ev.target.closest("label");
-    if (lab) lab.childNodes[0].textContent = `${t("Height", "身高")} ${E.fmtHeight(state.size.height, state.units)}`;
+    render();
     return;
   }
   if (ev.target.id === "weight") {
-    const p = state.game.positions[state.pos];
-    state.size.weight = E.clamp(Number(ev.target.value), p.minWeight, p.maxWeight);
+    const wt = E.weightRange(state.game, state.size.height, state.pos);
+    state.size.weight = E.clamp(Number(ev.target.value), wt.min, wt.max);
     refreshCaps();
     renderCard();
     const lab = ev.target.closest("label");
